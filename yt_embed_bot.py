@@ -1,9 +1,9 @@
 import asyncio
 import random
-from playwright.async_api import async_playwright
 import time
+from playwright.async_api import async_playwright, TimeoutError, Error
+from playwright._impl._errors import TargetClosedError
 
-# Embedded YouTube video URLs
 VIDEO_URLS = [
     "https://www.youtube.com/embed/u5BHEvPS1e4",
     "https://www.youtube.com/embed/7mENhao4cu8",
@@ -13,27 +13,22 @@ VIDEO_URLS = [
 ]
 
 USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (iPad; CPU OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)...",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X)...",
+    "Mozilla/5.0 (X11; Linux x86_64)...",
+    "Mozilla/5.0 (Windows NT 11.0; Win64; x64)...",
+    "Mozilla/5.0 (iPad; CPU OS 16_0 like Mac OS X)..."
 ]
 
-TIMEZONES = [
-    "America/New_York", "Europe/London", "Asia/Tokyo", "Australia/Sydney", "Europe/Paris"
-]
-
-LOCALES = [
-    "en-US", "fr-FR", "ja-JP", "de-DE", "es-ES"
-]
+TIMEZONES = ["America/New_York", "Europe/London", "Asia/Tokyo", "Australia/Sydney", "Europe/Paris"]
+LOCALES = ["en-US", "fr-FR", "ja-JP", "de-DE", "es-ES"]
 
 
 async def play_video(playwright, url, profile_num):
     try:
         browser = await playwright.chromium.launch(
             headless=False,
-            args=["--disable-gpu", "--no-sandbox"]
+            args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"]
         )
         context = await browser.new_context(
             user_agent=USER_AGENTS[profile_num],
@@ -46,23 +41,22 @@ async def play_video(playwright, url, profile_num):
 
         await page.wait_for_timeout(5000)
 
-        # Mute, 2x speed
         await page.evaluate("""
-            const player = document.querySelector('video');
-            if (player) {
-                player.muted = true;
-                player.playbackRate = 2.0;
+            const video = document.querySelector('video');
+            if (video) {
+                video.muted = true;
+                video.playbackRate = 2.0;
             }
         """)
-
-        print(f"✅ Profile {profile_num + 1} playing: {url}")
+        print(f"✅ Profile {profile_num+1} is playing: {url}")
         await page.wait_for_timeout(180000)  # 3 minutes
-
         await context.close()
         await browser.close()
 
+    except TargetClosedError as e:
+        print(f"⚠️ Browser closed unexpectedly in profile {profile_num+1}: {e}")
     except Exception as e:
-        print(f"❌ Error in profile {profile_num + 1}: {e}")
+        print(f"❌ General error in profile {profile_num+1}: {e}")
 
 
 async def main_loop():
@@ -70,10 +64,10 @@ async def main_loop():
         async with async_playwright() as playwright:
             tasks = []
             for i, url in enumerate(VIDEO_URLS):
-                await asyncio.sleep(i * 2)  # Stagger launches slightly
+                await asyncio.sleep(i * 5)  # slower stagger to reduce load
                 tasks.append(play_video(playwright, url, i))
             await asyncio.gather(*tasks)
-            print("🔁 Restarting loop with new profiles...\n")
+            print("🔁 Loop completed. Restarting with new profiles...\n")
             await asyncio.sleep(10)
 
 
@@ -81,4 +75,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main_loop())
     except Exception as e:
-        print(f"💥 Fatal error in main loop: {e}")
+        print(f"💥 Fatal error: {e}")
